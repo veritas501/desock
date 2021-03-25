@@ -37,7 +37,7 @@ void preeny_debug(char *fmt, ...) {
     if (!cfg_debug_on)
         return;
 
-    printf("[DEBUG]");
+    printf("[DEBUG] ");
     va_list args;
     va_start(args, fmt);
     vprintf(fmt, args);
@@ -50,7 +50,7 @@ void preeny_info(char *fmt, ...) {
     if (!cfg_info_on)
         return;
 
-    printf("[info]");
+    printf("[info] ");
     va_list args;
     va_start(args, fmt);
     vprintf(fmt, args);
@@ -63,7 +63,7 @@ void preeny_error(char *fmt, ...) {
     if (!cfg_error_on)
         return;
 
-    fprintf(stderr, "[ERROR]");
+    fprintf(stderr, "[ERROR] ");
     va_list args;
     va_start(args, fmt);
     vfprintf(stderr, fmt, args);
@@ -250,13 +250,13 @@ int socket(int domain, int type, int protocol) {
     preeny_socket_threads_to_front[fds[0]] = malloc(sizeof(pthread_t));
     preeny_socket_threads_to_back[fds[0]] = malloc(sizeof(pthread_t));
 
-    r = pthread_create(preeny_socket_threads_to_front[fds[0]], NULL, preeny_socket_sync_to_front, (void *)front_socket);
+    r = pthread_create(preeny_socket_threads_to_front[fds[0]], NULL, preeny_socket_sync_to_front, (void *)back_socket);
     if (r) {
         perror("failed creating front-sync thread");
         return -1;
     }
 
-    r = pthread_create(preeny_socket_threads_to_back[fds[0]], NULL, preeny_socket_sync_to_back, (void *)front_socket);
+    r = pthread_create(preeny_socket_threads_to_back[fds[0]], NULL, preeny_socket_sync_to_back, (void *)back_socket);
     if (r) {
         perror("failed creating back-sync thread");
         return -1;

@@ -42,8 +42,6 @@ void preeny_debug(char *fmt, ...) {
     va_start(args, fmt);
     vprintf(fmt, args);
     va_end(args);
-
-    fflush(stdout);
 }
 
 void preeny_info(char *fmt, ...) {
@@ -55,8 +53,6 @@ void preeny_info(char *fmt, ...) {
     va_start(args, fmt);
     vprintf(fmt, args);
     va_end(args);
-
-    fflush(stdout);
 }
 
 void preeny_error(char *fmt, ...) {
@@ -68,8 +64,6 @@ void preeny_error(char *fmt, ...) {
     va_start(args, fmt);
     vfprintf(stderr, fmt, args);
     va_end(args);
-
-    fflush(stderr);
 }
 
 __attribute__((constructor)) void set_io_buf() {
@@ -193,24 +187,24 @@ void *preeny_socket_sync_to_front(void *back_fd) {
 //
 // originals
 //
-int (*original_socket)(int, int, int);
-int (*original_bind)(int, const struct sockaddr *, socklen_t);
-int (*original_listen)(int, int);
-int (*original_accept)(int, struct sockaddr *, socklen_t *);
-int (*original_connect)(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
-int (*original_close)(int fd);
-int (*original_shutdown)(int sockfd, int how);
-int (*original_getsockname)(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
+int (*ori_socket)(int, int, int);
+int (*ori_bind)(int, const struct sockaddr *, socklen_t);
+int (*ori_listen)(int, int);
+int (*ori_accept)(int, struct sockaddr *, socklen_t *);
+int (*ori_connect)(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
+int (*ori_close)(int fd);
+int (*ori_shutdown)(int sockfd, int how);
+int (*ori_getsockname)(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
 
 __attribute__((constructor)) void preeny_desock_orig() {
-    original_socket = dlsym(RTLD_NEXT, "socket");
-    original_listen = dlsym(RTLD_NEXT, "listen");
-    original_accept = dlsym(RTLD_NEXT, "accept");
-    original_bind = dlsym(RTLD_NEXT, "bind");
-    original_connect = dlsym(RTLD_NEXT, "connect");
-    original_close = dlsym(RTLD_NEXT, "close");
-    original_shutdown = dlsym(RTLD_NEXT, "shutdown");
-    original_getsockname = dlsym(RTLD_NEXT, "getsockname");
+    ori_socket = dlsym(RTLD_NEXT, "socket");
+    ori_listen = dlsym(RTLD_NEXT, "listen");
+    ori_accept = dlsym(RTLD_NEXT, "accept");
+    ori_bind = dlsym(RTLD_NEXT, "bind");
+    ori_connect = dlsym(RTLD_NEXT, "connect");
+    ori_close = dlsym(RTLD_NEXT, "close");
+    ori_shutdown = dlsym(RTLD_NEXT, "shutdown");
+    ori_getsockname = dlsym(RTLD_NEXT, "getsockname");
 }
 
 int socket(int domain, int type, int protocol) {
@@ -220,7 +214,7 @@ int socket(int domain, int type, int protocol) {
 
     if (domain != AF_INET && domain != AF_INET6) {
         preeny_info("Ignoring non-internet socket.");
-        return original_socket(domain, type, protocol);
+        return ori_socket(domain, type, protocol);
     }
 
     int r = socketpair(AF_UNIX, type, 0, fds);
@@ -280,7 +274,7 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
         preeny_desock_accepted_sock = dup(sockfd);
         return preeny_desock_accepted_sock;
     } else {
-        return original_accept(sockfd, addr, addrlen);
+        return ori_accept(sockfd, addr, addrlen);
     }
 }
 
@@ -293,7 +287,7 @@ int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
         preeny_info("Emulating bind on port %d\n", ntohs(((struct sockaddr_in *)addr)->sin_port));
         return 0;
     }
-    return original_bind(sockfd, addr, addrlen);
+    return ori_bind(sockfd, addr, addrlen);
 }
 
 int listen(int sockfd, int backlog) {
@@ -301,7 +295,7 @@ int listen(int sockfd, int backlog) {
         return 0;
     }
 
-    return original_listen(sockfd, backlog);
+    return ori_listen(sockfd, backlog);
 }
 
 int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
@@ -309,7 +303,7 @@ int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
         return 0;
     }
 
-    return original_connect(sockfd, addr, addrlen);
+    return ori_connect(sockfd, addr, addrlen);
 }
 
 int close(int fd) {
@@ -322,7 +316,7 @@ int close(int fd) {
         }
     }
 
-    return original_close(fd);
+    return ori_close(fd);
 }
 
 int shutdown(int sockfd, int how) {
@@ -330,7 +324,7 @@ int shutdown(int sockfd, int how) {
         exit(0);
     }
 
-    return original_shutdown(sockfd, how);
+    return ori_shutdown(sockfd, how);
 }
 
 int getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
@@ -338,7 +332,7 @@ int getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
     socklen_t copylen = sizeof(target);
 
     if (!preeny_socket_threads_to_front[sockfd]) {
-        return original_getsockname(sockfd, addr, addrlen);
+        return ori_getsockname(sockfd, addr, addrlen);
     }
 
     if (!addr || !addrlen) {

@@ -19,16 +19,18 @@
 //
 // ------------------------- preeny logging module -------------------------
 //
-int cfg_debug_on = 0;   // show debug msg
-int cfg_info_on = 0;    // show info msg
-int cfg_error_on = 1;   // show error msg
-int cfg_exec_fast = 0;  // use poll timeout = -1 && pthread_kill to execute faster
+int cfg_debug_on = 0;       // show debug msg
+int cfg_info_on = 0;        // show info msg
+int cfg_error_on = 1;       // show error msg
+int cfg_exec_fast = 0;      // use poll timeout = -1 && pthread_kill to execute faster
+int cfg_close_not_exit = 0; // don't exit when close() called
 
 __attribute__((constructor)) void read_config() {
     cfg_debug_on |= ENV_ISSET("PREENY_DEBUG");
     cfg_info_on |= ENV_ISSET("PREENY_INFO");
     cfg_error_on |= ENV_ISSET("PREENY_ERROR");
     cfg_exec_fast |= ENV_ISSET("PREENY_EXEC_FAST");
+    cfg_close_not_exit |= ENV_ISSET("PREENY_CLOSE_NOT_EXIT");
 }
 
 void preeny_debug(char *fmt, ...) {
@@ -248,13 +250,13 @@ int socket(int domain, int type, int protocol) {
     preeny_socket_threads_to_front[fds[0]] = malloc(sizeof(pthread_t));
     preeny_socket_threads_to_back[fds[0]] = malloc(sizeof(pthread_t));
 
-    r = pthread_create(preeny_socket_threads_to_front[fds[0]], NULL, (void *(*)(void *))preeny_socket_sync_to_front, (void *)front_socket);
+    r = pthread_create(preeny_socket_threads_to_front[fds[0]], NULL, preeny_socket_sync_to_front, (void *)front_socket);
     if (r) {
         perror("failed creating front-sync thread");
         return -1;
     }
 
-    r = pthread_create(preeny_socket_threads_to_back[fds[0]], NULL, (void *(*)(void *))preeny_socket_sync_to_back, (void *)front_socket);
+    r = pthread_create(preeny_socket_threads_to_back[fds[0]], NULL, preeny_socket_sync_to_back, (void *)front_socket);
     if (r) {
         perror("failed creating back-sync thread");
         return -1;
@@ -319,8 +321,14 @@ int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
 }
 
 int close(int fd) {
-    if (preeny_desock_accepted_sock != -1 && preeny_desock_accepted_sock == fd)
-        exit(0);
+    if (preeny_desock_accepted_sock != -1 && preeny_desock_accepted_sock == fd){
+		if(cfg_close_not_exit){
+			preeny_desock_accepted_sock = -1;
+			return 0;
+		}else{
+			exit(0);
+		}
+	}
 
     return original_close(fd);
 }

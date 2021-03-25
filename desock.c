@@ -6,6 +6,7 @@
 #include <poll.h>
 #include <pthread.h>
 #include <signal.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,15 +14,28 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#define preeny_debug_on (0)
-#define preeny_info_on (0)
-#define preeny_error_on (1)
+#define ENV_ISSET(name) (getenv(name) && (strcmp(getenv(name), "1") == 0))
+
+//
+// ------------------------- preeny logging module -------------------------
+//
+int cfg_debug_on = 0;   // show debug msg
+int cfg_info_on = 0;    // show info msg
+int cfg_error_on = 1;   // show error msg
+int cfg_exec_fast = 0;  // use poll timeout = -1 && pthread_kill to execute faster
+
+__attribute__((constructor)) void read_config() {
+    cfg_debug_on |= ENV_ISSET("PREENY_DEBUG");
+    cfg_info_on |= ENV_ISSET("PREENY_INFO");
+    cfg_error_on |= ENV_ISSET("PREENY_ERROR");
+    cfg_exec_fast |= ENV_ISSET("PREENY_EXEC_FAST");
+}
 
 void preeny_debug(char *fmt, ...) {
-    if (!preeny_debug_on)
+    if (!cfg_debug_on)
         return;
 
-    printf("+++ ");
+    printf("[DEBUG]");
     va_list args;
     va_start(args, fmt);
     vprintf(fmt, args);
@@ -31,10 +45,10 @@ void preeny_debug(char *fmt, ...) {
 }
 
 void preeny_info(char *fmt, ...) {
-    if (!preeny_info_on)
+    if (!cfg_info_on)
         return;
 
-    printf("--- ");
+    printf("[info]");
     va_list args;
     va_start(args, fmt);
     vprintf(fmt, args);
@@ -44,10 +58,10 @@ void preeny_info(char *fmt, ...) {
 }
 
 void preeny_error(char *fmt, ...) {
-    if (!preeny_error_on)
+    if (!cfg_error_on)
         return;
 
-    fprintf(stderr, "!!! ERROR: ");
+    fprintf(stderr, "[ERROR]");
     va_list args;
     va_start(args, fmt);
     vfprintf(stderr, fmt, args);
@@ -56,11 +70,17 @@ void preeny_error(char *fmt, ...) {
     fflush(stderr);
 }
 
+__attribute__((constructor)) void set_io_buf() {
+    setvbuf(stdin, 0, 2, 0);
+    setvbuf(stdout, 0, 2, 0);
+    setvbuf(stderr, 0, 2, 0);
+}
+
 #define PREENY_MAX_FD 8192
 #define PREENY_SOCKET_OFFSET 500
-#define READ_BUF_SIZE 65536
+#define READ_BUF_SIZE 0x10000
 
-#define PREENY_SIN_PORT 9000
+#define PREENY_SIN_PORT 13337
 
 #define PREENY_SOCKET(x) (x + PREENY_SOCKET_OFFSET)
 
@@ -124,8 +144,13 @@ __attribute__((destructor)) void preeny_desock_shutdown() {
     for (i = 0; i < PREENY_MAX_FD; i++) {
         if (preeny_socket_threads_to_front[i]) {
             preeny_debug("sending SIGINT to thread %d...\n", i);
-            pthread_join(*preeny_socket_threads_to_front[i], NULL);
-            pthread_join(*preeny_socket_threads_to_back[i], NULL);
+            if (cfg_exec_fast) {
+                pthread_kill(*preeny_socket_threads_to_front[i], SIGINT);
+                pthread_kill(*preeny_socket_threads_to_back[i], SIGINT);
+            } else {
+                pthread_join(*preeny_socket_threads_to_front[i], NULL);
+                pthread_join(*preeny_socket_threads_to_back[i], NULL);
+            }
             preeny_debug("... sent!\n");
             to_sync[i] = 1;
         }
@@ -143,14 +168,13 @@ __attribute__((destructor)) void preeny_desock_shutdown() {
 }
 
 void preeny_socket_sync_loop(int from, int to) {
-    int r;
-
     preeny_debug("starting forwarding from %d to %d!\n", from, to);
 
+    int poll_timeout = cfg_exec_fast ? -1 : 15;
     while (!preeny_desock_shutdown_flag) {
-        r = preeny_socket_sync(from, to, 15);
-        if (r < 0)
+        if (preeny_socket_sync(from, to, poll_timeout) < 0) {
             return;
+        }
     }
 }
 
@@ -183,6 +207,7 @@ int (*original_connect)(int sockfd, const struct sockaddr *addr, socklen_t addrl
 int (*original_close)(int fd);
 int (*original_shutdown)(int sockfd, int how);
 int (*original_getsockname)(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
+
 __attribute__((constructor)) void preeny_desock_orig() {
     original_socket = dlsym(RTLD_NEXT, "socket");
     original_listen = dlsym(RTLD_NEXT, "listen");

@@ -79,12 +79,8 @@ __attribute__((constructor)) void set_io_buf() {
 }
 
 #define PREENY_MAX_FD 8192
-#define PREENY_SOCKET_OFFSET 500
 #define READ_BUF_SIZE 0x10000
-
 #define PREENY_SIN_PORT 13337
-
-#define PREENY_SOCKET(x) (x + PREENY_SOCKET_OFFSET)
 
 int preeny_desock_shutdown_flag = 0;
 int preeny_desock_accepted_sock = -1;
@@ -183,18 +179,14 @@ void preeny_socket_sync_loop(int from, int to) {
 #pragma GCC diagnostic ignored "-Wpointer-to-int-cast"
 #pragma GCC diagnostic ignored "-Wint-to-pointer-cast"
 
-void *preeny_socket_sync_to_back(void *fd) {
-    int front_fd = (int)fd;
-    int back_fd = PREENY_SOCKET(front_fd);
-    preeny_socket_sync_loop(back_fd, 1);
+void *preeny_socket_sync_to_back(void *back_fd) {
+    preeny_socket_sync_loop((int)back_fd, 1);
     return NULL;
 }
 
-void *preeny_socket_sync_to_front(void *fd) {
-    int front_fd = (int)fd;
-    int back_fd = PREENY_SOCKET(front_fd);
-    preeny_socket_sync_loop(0, back_fd);
-    shutdown(back_fd, SHUT_WR);
+void *preeny_socket_sync_to_front(void *back_fd) {
+    preeny_socket_sync_loop(0, (int)back_fd);
+    shutdown((int)back_fd, SHUT_WR);
     return NULL;
 }
 
@@ -242,10 +234,7 @@ int socket(int domain, int type, int protocol) {
     preeny_debug("... created socket pair (%d, %d)\n", fds[0], fds[1]);
 
     front_socket = fds[0];
-    back_socket = dup2(fds[1], PREENY_SOCKET(front_socket));
-    close(fds[1]);
-
-    preeny_debug("... dup into socketpair (%d, %d)\n", fds[0], back_socket);
+    back_socket = fds[1];
 
     preeny_socket_threads_to_front[fds[0]] = malloc(sizeof(pthread_t));
     preeny_socket_threads_to_back[fds[0]] = malloc(sizeof(pthread_t));

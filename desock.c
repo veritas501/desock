@@ -160,9 +160,9 @@ __attribute__((destructor)) void preeny_desock_shutdown() {
 
     for (i = 0; i < PREENY_MAX_FD; i++) {
         if (to_sync[i]) {
-            //while (preeny_socket_sync(0, PREENY_SOCKET(i), 10) > 0);
-            while (preeny_socket_sync(PREENY_SOCKET(i), 1, 0) > 0)
-                ;
+            while (preeny_socket_sync(PREENY_SOCKET(i), 1, 0) > 0) {
+                // loop
+            }
         }
     }
 
@@ -283,14 +283,16 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
     peer_addr.sin_port = htons(PREENY_SIN_PORT);
 
     //copy the initialized peer_addr back to the original sockaddr. Note the space for the original sockaddr, namely addr, has already been allocated
-    if (addr)
+    if (addr) {
         memcpy(addr, &peer_addr, sizeof(struct sockaddr_in));
+    }
 
     if (preeny_socket_threads_to_front[sockfd]) {
         preeny_desock_accepted_sock = dup(sockfd);
         return preeny_desock_accepted_sock;
-    } else
+    } else {
         return original_accept(sockfd, addr, addrlen);
+    }
 }
 
 int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags) {
@@ -301,41 +303,43 @@ int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
     if (preeny_socket_threads_to_front[sockfd]) {
         preeny_info("Emulating bind on port %d\n", ntohs(((struct sockaddr_in *)addr)->sin_port));
         return 0;
-    } else {
-        return original_bind(sockfd, addr, addrlen);
     }
+    return original_bind(sockfd, addr, addrlen);
 }
 
 int listen(int sockfd, int backlog) {
-    if (preeny_socket_threads_to_front[sockfd])
+    if (preeny_socket_threads_to_front[sockfd]) {
         return 0;
-    else
-        return original_listen(sockfd, backlog);
+    }
+
+    return original_listen(sockfd, backlog);
 }
 
 int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen) {
-    if (preeny_socket_threads_to_front[sockfd])
+    if (preeny_socket_threads_to_front[sockfd]) {
         return 0;
-    else
-        return original_connect(sockfd, addr, addrlen);
+    }
+
+    return original_connect(sockfd, addr, addrlen);
 }
 
 int close(int fd) {
-    if (preeny_desock_accepted_sock != -1 && preeny_desock_accepted_sock == fd){
-		if(cfg_close_not_exit){
-			preeny_desock_accepted_sock = -1;
-			return 0;
-		}else{
-			exit(0);
-		}
-	}
+    if (preeny_desock_accepted_sock != -1 && preeny_desock_accepted_sock == fd) {
+        if (cfg_close_not_exit) {
+            preeny_desock_accepted_sock = -1;
+            return 0;
+        } else {
+            exit(0);
+        }
+    }
 
     return original_close(fd);
 }
 
 int shutdown(int sockfd, int how) {
-    if (preeny_desock_accepted_sock != -1 && preeny_desock_accepted_sock == sockfd)
+    if (preeny_desock_accepted_sock != -1 && preeny_desock_accepted_sock == sockfd) {
         exit(0);
+    }
 
     return original_shutdown(sockfd, how);
 }
@@ -344,14 +348,17 @@ int getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
     struct sockaddr_in target;
     socklen_t copylen = sizeof(target);
 
-    if (!preeny_socket_threads_to_front[sockfd])
+    if (!preeny_socket_threads_to_front[sockfd]) {
         return original_getsockname(sockfd, addr, addrlen);
+    }
 
-    if (!addr || !addrlen)
+    if (!addr || !addrlen) {
         return -1;
+    }
 
-    if (*addrlen < sizeof(target))
+    if (*addrlen < sizeof(target)) {
         copylen = *addrlen;
+    }
 
     target.sin_family = AF_INET;
     target.sin_addr.s_addr = htonl(INADDR_ANY);

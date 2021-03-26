@@ -74,13 +74,16 @@ __attribute__((constructor)) void set_io_buf() {
 
 #define PREENY_MAX_FD 8192
 #define READ_BUF_SIZE 0x10000
-#define PREENY_SIN_PORT 13337
+#define PREENY_LISTEN_PORT 13337
+#define PREENY_CONNECT_PORT 10086
 
 int preeny_desock_shutdown_flag = 0;
 int preeny_desock_accepted_sock = -1;
 
 pthread_t *preeny_socket_threads_to_front[PREENY_MAX_FD] = {0};
 pthread_t *preeny_socket_threads_to_back[PREENY_MAX_FD] = {0};
+
+int sock_pairs[PREENY_MAX_FD] = {0};
 
 int preeny_socket_sync(int from, int to, int timeout) {
     struct pollfd poll_in = {from, POLLIN, 0};
@@ -127,30 +130,30 @@ int preeny_socket_sync(int from, int to, int timeout) {
 }
 
 __attribute__((destructor)) void preeny_desock_shutdown() {
-    int i;
-    int to_sync[PREENY_MAX_FD] = {};
+    int front_fd;
+    int to_sync[PREENY_MAX_FD] = {0};
 
     preeny_debug("shutting down desock...\n");
     preeny_desock_shutdown_flag = 1;
 
-    for (i = 0; i < PREENY_MAX_FD; i++) {
-        if (preeny_socket_threads_to_front[i]) {
-            preeny_debug("sending SIGINT to thread %d...\n", i);
+    for (front_fd = 0; front_fd < PREENY_MAX_FD; front_fd++) {
+        if (preeny_socket_threads_to_front[front_fd]) {
+            preeny_debug("sending SIGINT to thread %d...\n", front_fd);
             if (cfg_exec_fast) {
-                pthread_kill(*preeny_socket_threads_to_front[i], SIGINT);
-                pthread_kill(*preeny_socket_threads_to_back[i], SIGINT);
+                pthread_kill(*preeny_socket_threads_to_front[front_fd], SIGINT);
+                pthread_kill(*preeny_socket_threads_to_back[front_fd], SIGINT);
             } else {
-                pthread_join(*preeny_socket_threads_to_front[i], NULL);
-                pthread_join(*preeny_socket_threads_to_back[i], NULL);
+                pthread_join(*preeny_socket_threads_to_front[front_fd], NULL);
+                pthread_join(*preeny_socket_threads_to_back[front_fd], NULL);
             }
             preeny_debug("... sent!\n");
-            to_sync[i] = 1;
+            to_sync[front_fd] = 1;
         }
     }
 
-    for (i = 0; i < PREENY_MAX_FD; i++) {
-        if (to_sync[i]) {
-            while (preeny_socket_sync(PREENY_SOCKET(i), 1, 0) > 0) {
+    for (front_fd = 0; front_fd < PREENY_MAX_FD; front_fd++) {
+        if (to_sync[front_fd]) {
+            while (preeny_socket_sync(sock_pairs[front_fd], 1, 0) > 0) {
                 // loop
             }
         }
@@ -229,6 +232,7 @@ int socket(int domain, int type, int protocol) {
 
     front_socket = fds[0];
     back_socket = fds[1];
+    sock_pairs[front_socket] = back_socket;
 
     preeny_socket_threads_to_front[fds[0]] = malloc(sizeof(pthread_t));
     preeny_socket_threads_to_back[fds[0]] = malloc(sizeof(pthread_t));
@@ -256,14 +260,14 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
 
     //initialize a sockaddr_in for the peer
     struct sockaddr_in peer_addr;
-    memset(&peer_addr, '0', sizeof(struct sockaddr_in));
+    memset(&peer_addr, 0, sizeof(struct sockaddr_in));
 
     //Set the contents in the peer's sock_addr.
     //Make sure the contents will simulate a real client that connects with the intercepted server, as the server may depend on the contents to make further decisions.
     //The followings set-up should be fine with Nginx.
     peer_addr.sin_family = AF_INET;
-    peer_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    peer_addr.sin_port = htons(PREENY_SIN_PORT);
+    peer_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    peer_addr.sin_port = htons(PREENY_CONNECT_PORT);
 
     //copy the initialized peer_addr back to the original sockaddr. Note the space for the original sockaddr, namely addr, has already been allocated
     if (addr) {
@@ -328,7 +332,7 @@ int shutdown(int sockfd, int how) {
 }
 
 int getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
-    struct sockaddr_in target;
+    struct sockaddr_in target = {0};
     socklen_t copylen = sizeof(target);
 
     if (!preeny_socket_threads_to_front[sockfd]) {
@@ -344,8 +348,8 @@ int getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
     }
 
     target.sin_family = AF_INET;
-    target.sin_addr.s_addr = htonl(INADDR_ANY);
-    target.sin_port = htons(PREENY_SIN_PORT);
+    target.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    target.sin_port = htons(PREENY_LISTEN_PORT);
 
     memcpy(addr, &target, copylen);
     *addrlen = copylen;

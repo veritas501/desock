@@ -96,10 +96,11 @@ int preeny_socket_sync(int from, int to, int timeout) {
     char error_buf[1024];
     int n;
     int r;
+	char * r2;
 
     r = poll(&poll_in, 1, timeout);
     if (r < 0) {
-        strerror_r(errno, error_buf, 1024);
+        r2 = strerror_r(errno, error_buf, 1024);
         preeny_debug("read poll() received error '%s' on fd %d\n", error_buf, from);
         return 0;
     } else if (poll_in.revents == 0) {
@@ -109,7 +110,7 @@ int preeny_socket_sync(int from, int to, int timeout) {
 
     total_n = read(from, read_buf, READ_BUF_SIZE);
     if (total_n < 0) {
-        strerror_r(errno, error_buf, 1024);
+        r2 = strerror_r(errno, error_buf, 1024);
         preeny_info("synchronization of fd %d to %d shutting down due to read error '%s'\n", from, to, error_buf);
         return -1;
     } else if (total_n == 0 && from == 0) {
@@ -122,7 +123,7 @@ int preeny_socket_sync(int from, int to, int timeout) {
     while (n != total_n) {
         r = write(to, read_buf, total_n - n);
         if (r < 0) {
-            strerror_r(errno, error_buf, 1024);
+            r2 = strerror_r(errno, error_buf, 1024);
             preeny_info("synchronization of fd %d to %d shutting down due to read error '%s'\n", from, to, error_buf);
             return -1;
         }

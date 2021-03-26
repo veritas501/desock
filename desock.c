@@ -24,6 +24,7 @@ int cfg_info_on = 0;        // show info msg
 int cfg_error_on = 1;       // show error msg
 int cfg_exec_fast = 0;      // use poll timeout = -1 && pthread_kill to execute faster
 int cfg_close_not_exit = 0; // don't exit when close() called
+int cfg_poll_timeout = 15;  // user defined timeout when calling poll()
 
 __attribute__((constructor)) void read_config() {
     cfg_debug_on |= ENV_ISSET("PREENY_DEBUG");
@@ -31,6 +32,9 @@ __attribute__((constructor)) void read_config() {
     cfg_error_on |= ENV_ISSET("PREENY_ERROR");
     cfg_exec_fast |= ENV_ISSET("PREENY_EXEC_FAST");
     cfg_close_not_exit |= ENV_ISSET("PREENY_CLOSE_NOT_EXIT");
+    if (getenv("PREENY_POLL_TIMEOUT")) {
+        cfg_poll_timeout = atoi(getenv("PREENY_POLL_TIMEOUT"));
+    }
 }
 
 void preeny_debug(char *fmt, ...) {
@@ -139,7 +143,7 @@ __attribute__((destructor)) void preeny_desock_shutdown() {
     for (front_fd = 0; front_fd < PREENY_MAX_FD; front_fd++) {
         if (preeny_socket_threads_to_front[front_fd]) {
             preeny_debug("sending SIGINT to thread %d...\n", front_fd);
-            if (cfg_exec_fast) {
+            if (cfg_exec_fast || (cfg_poll_timeout == -1)) {
                 pthread_kill(*preeny_socket_threads_to_front[front_fd], SIGINT);
                 pthread_kill(*preeny_socket_threads_to_back[front_fd], SIGINT);
             } else {
@@ -166,6 +170,9 @@ void preeny_socket_sync_loop(int from, int to) {
     preeny_debug("starting forwarding from %d to %d!\n", from, to);
 
     int poll_timeout = cfg_exec_fast ? -1 : 15;
+    if (cfg_poll_timeout) {
+        poll_timeout = cfg_poll_timeout;
+    }
     while (!preeny_desock_shutdown_flag) {
         if (preeny_socket_sync(from, to, poll_timeout) < 0) {
             return;
